@@ -1,8 +1,24 @@
 # 🎭 Coquette
 
-> **Multi-Model AI Orchestration with Subconscious Reasoning**
+> **Multi-Model AI Orchestration with Subconscious Reasoning**  
+> ⚠️ **Experimental Architecture** - Work in Progress
 
 Coquette is a revolutionary AI architecture that thinks before it acts. Unlike single-model systems, Coquette creates a "cognitive chain" where different AI models handle different aspects of intelligence - routing decisions, deep reasoning, personality interpretation, and tool orchestration - resulting in more nuanced and human-like AI interactions.
+
+## ⚠️ Current Status
+
+**This is experimental software exploring novel AI orchestration patterns.**
+
+- 🔬 **Research-grade code** - Not production ready
+- 🧪 **Active experimentation** - Architecture evolving rapidly  
+- 🚧 **Incomplete features** - Many components in development
+- 🔧 **Rough edges** - Expect bugs, missing error handling, TODO comments
+- 📚 **Learning project** - Built to explore multi-model intelligence concepts
+
+**What works:** Basic routing, personality systems, some tool orchestration  
+**What doesn't:** Full recursive validation, complete error recovery, all documented features
+
+If you're looking for production AI tools, this isn't it (yet). If you're interested in novel approaches to AI orchestration and don't mind tinkering with experimental code, welcome aboard! 🚀
 
 ## 🧠 What Makes Coquette Different
 
@@ -166,13 +182,27 @@ Personalities filter technical responses while preserving accuracy.
 
 ## 🤝 Contributing
 
-This is an experimental system exploring novel AI orchestration patterns. Contributions welcome!
+**This is experimental research code - contributions welcome but expect chaos!**
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Make changes following existing patterns
-4. Test with `npm test`
-5. Submit pull request
+- 🔬 **Research mindset required** - We're figuring this out as we go
+- 🧪 **Breaking changes frequent** - Architecture shifts happen
+- 📝 **Documentation lacking** - Many patterns exist only in code
+- 🐛 **Bugs expected** - This is exploratory work
+- 💡 **Ideas over polish** - Novel concepts more important than clean implementation
+
+**How to contribute:**
+1. Fork and explore the codebase
+2. Try running it, expect things to break
+3. Suggest architectural improvements or novel patterns
+4. Submit PRs for specific components (not massive refactors)
+5. Document what you discover in issues
+
+**What we need:**
+- Testing of multi-model routing logic
+- Better error handling patterns
+- Performance optimizations for Ollama integration
+- Documentation of working vs broken features
+- Novel ideas for AI orchestration patterns
 
 ## 📄 License
 
@@ -184,6 +214,18 @@ Coquette is inspired by human cognitive architecture - we don't just respond imm
 
 The goal isn't just better AI responses, but more human-like AI reasoning.
 
+## 🔬 Research Goals
+
+This project explores several novel concepts in AI orchestration:
+
+- **Metacognitive AI**: Can AI systems reason about their own reasoning?
+- **Dynamic Model Selection**: Using AI to choose AI models based on complexity analysis
+- **Subconscious Processing**: Background validation and refinement of responses
+- **Personality Consistency**: Maintaining character traits across technical operations
+- **Human-like Memory**: Forgetting, summarization, and context rehydration patterns
+
+**Academic Interest**: If you're researching AI orchestration, multi-agent systems, or metacognitive architectures, the codebase contains novel patterns worth exploring.
+
 ---
 
-*Ready to experience AI that actually thinks? Try Coquette.*
+*Ready to explore experimental AI architectures? Welcome to the lab. 🧪*
