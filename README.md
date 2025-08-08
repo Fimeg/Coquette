@@ -229,3 +229,6 @@ This project explores several novel concepts in AI orchestration:
 ---
 
 *Ready to explore experimental AI architectures? Welcome to the lab. 🧪*
+
+
+<a href="https://www.buymeacoffee.com/caseytunturi" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-violet.png" alt="Buy Me A Coffee" height="60px" width="200px"></a>
