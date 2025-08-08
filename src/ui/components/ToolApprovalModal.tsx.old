@@ -1,0 +1,178 @@
+/**
+ * Tool Approval Modal - Shows pending tool execution requests for user approval
+ */
+
+import React, { useState, useEffect } from 'react';
+import { Box, Text, useInput } from 'ink';
+
+export interface PendingToolCall {
+  id: string;
+  tool_call: {
+    id: string;
+    name: string;
+    parameters: Record<string, any>;
+  };
+  description?: string;
+  safety_level?: 'safe' | 'caution' | 'dangerous';
+  estimated_time?: string;
+}
+
+interface ToolApprovalModalProps {
+  pendingTools: PendingToolCall[];
+  onApprove: (approvalId: string) => void;
+  onReject: (approvalId: string) => void;
+  onApproveAll: () => void;
+  onRejectAll: () => void;
+  onClose: () => void;
+  visible: boolean;
+}
+
+export const ToolApprovalModal: React.FC<ToolApprovalModalProps> = ({
+  pendingTools,
+  onApprove,
+  onReject,
+  onApproveAll,
+  onRejectAll,
+  onClose,
+  visible
+}) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  // Reset index when tools change
+  useEffect(() => {
+    if (pendingTools.length > 0 && currentIndex >= pendingTools.length) {
+      setCurrentIndex(0);
+    }
+  }, [pendingTools.length, currentIndex]);
+
+  useInput((input, key) => {
+    if (!visible || pendingTools.length === 0) return;
+
+    const currentTool = pendingTools[currentIndex];
+
+    if (key.upArrow && currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    } else if (key.downArrow && currentIndex < pendingTools.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      switch (input.toLowerCase()) {
+        case 'y':
+        case 'a':
+          onApprove(currentTool.id);
+          break;
+        case 'n':
+        case 'r':
+          onReject(currentTool.id);
+          break;
+        case 'aa':
+          onApproveAll();
+          break;
+        case 'ra':
+          onRejectAll();
+          break;
+        case 'q':
+        case 'c':
+          onClose();
+          break;
+      }
+    }
+  });
+
+  if (!visible || pendingTools.length === 0) {
+    return null;
+  }
+
+  const currentTool = pendingTools[currentIndex];
+  const toolCall = currentTool.tool_call;
+
+  const getSafetyIcon = (level?: string): string => {
+    switch (level) {
+      case 'safe': return '✅';
+      case 'caution': return '⚠️';
+      case 'dangerous': return '🚨';
+      default: return '🔧';
+    }
+  };
+
+  const getSafetyColor = (level?: string): string => {
+    switch (level) {
+      case 'safe': return 'green';
+      case 'caution': return 'yellow';
+      case 'dangerous': return 'red';
+      default: return 'blue';
+    }
+  };
+
+  const formatParameters = (params: Record<string, any>): string => {
+    return Object.entries(params)
+      .map(([key, value]) => `  ${key}: ${JSON.stringify(value)}`)
+      .join('\n');
+  };
+
+  return (
+    <Box flexDirection="column" borderStyle="double" borderColor="yellow" padding={1}>
+      <Box justifyContent="center" marginBottom={1}>
+        <Text bold color="yellow">🔧 Tool Execution Approval Required</Text>
+      </Box>
+
+      <Box marginBottom={1}>
+        <Text color="gray">
+          {pendingTools.length > 1 
+            ? `Showing ${currentIndex + 1} of ${pendingTools.length} pending tools`
+            : '1 tool pending approval'
+          }
+        </Text>
+      </Box>
+
+      <Box flexDirection="column" borderStyle="single" borderColor="gray" padding={1} marginBottom={1}>
+        <Box marginBottom={1}>
+          <Text color={getSafetyColor(currentTool.safety_level)}>
+            {getSafetyIcon(currentTool.safety_level)} <Text bold>{toolCall.name}</Text>
+          </Text>
+          {currentTool.safety_level && (
+            <Text color="gray"> ({currentTool.safety_level})</Text>
+          )}
+        </Box>
+
+        {currentTool.description && (
+          <Box marginBottom={1}>
+            <Text>{currentTool.description}</Text>
+          </Box>
+        )}
+
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color="cyan" bold>Parameters:</Text>
+          <Text color="gray">{formatParameters(toolCall.parameters)}</Text>
+        </Box>
+
+        {currentTool.estimated_time && (
+          <Box>
+            <Text color="yellow">Estimated execution time: {currentTool.estimated_time}</Text>
+          </Box>
+        )}
+      </Box>
+
+      <Box flexDirection="column" marginBottom={1}>
+        <Text bold color="green">Actions:</Text>
+        <Text color="green">  Y/A - Approve this tool</Text>
+        <Text color="red">  N/R - Reject this tool</Text>
+        
+        {pendingTools.length > 1 && (
+          <>
+            <Text color="green">  AA  - Approve all tools</Text>
+            <Text color="red">  RA  - Reject all tools</Text>
+            <Text color="cyan">  ↑/↓ - Navigate between tools</Text>
+          </>
+        )}
+        
+        <Text color="gray">  Q/C - Cancel and close</Text>
+      </Box>
+
+      <Box justifyContent="center">
+        <Text color="yellow" dimColor>
+          Tool execution will {currentTool.safety_level === 'dangerous' ? 'potentially modify your system' : 'access local resources'}
+        </Text>
+      </Box>
+    </Box>
+  );
+};

@@ -1,0 +1,548 @@
+/**
+ * Main Coquette UI Application
+ * Interactive terminal interface with streaming support
+ */
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { DebugLogger } from '../../core/DebugLogger';
+import { Box, Text, useInput, useApp } from 'ink';
+import chalk from 'chalk';
+
+import { CoquetuteEngine, CoquetuteResponse, CoquetuteStreamChunk } from '../../core/CoquetuteEngine.js';
+import { CoquetuteMode } from '../../core/types.js';
+import { MultilineInput } from './MultilineInput.js';
+import { StatusBar } from './StatusBar.js';
+import { ChatHistory } from './ChatHistory.js';
+import { useTerminalSize } from '../../hooks/useTerminalSize.js';
+
+interface CoquetuteAppProps {
+  engine: CoquetuteEngine;
+  initialStream?: boolean;
+  debug?: boolean;
+  mode?: CoquetuteMode;
+}
+
+type Key = {
+  name?: string;
+  ctrl: boolean;
+  meta: boolean;
+  shift: boolean;
+  sequence?: string;
+  code?: string;
+  upArrow?: boolean;
+  downArrow?: boolean;
+  leftArrow?: boolean;
+  rightArrow?: boolean;
+  return?: boolean;
+  escape?: boolean;
+  tab?: boolean;
+  backspace?: boolean;
+  delete?: boolean;
+  pageDown?: boolean;
+  pageUp?: boolean;
+  [key: string]: unknown;
+} & Record<string, unknown>;
+
+interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  metadata?: any;
+}
+
+export const CoquetuteApp: React.FC<CoquetuteAppProps> = ({
+  engine,
+  initialStream = true,
+  debug = false,
+  mode
+}) => {
+  const logger = DebugLogger.getInstance();
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (!initialized.current) {
+      if (process.env.DEBUG) {
+        console.log('DebugLogger initialized:', logger);
+      }
+      logger.logInputEvent('init', 'CoquetuteApp mounted');
+      initialized.current = true;
+    }
+  }, []);
+  
+  const { width, height } = useTerminalSize();
+  const { exit } = useApp();
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const inputRef = useRef('');
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [streamEnabled, setStreamEnabled] = useState(initialStream);
+  const [currentProvider, setCurrentProvider] = useState('claude');
+  const [currentPersonality, setCurrentPersonality] = useState('ani');
+  const [showHelp, setShowHelp] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [currentMode, setCurrentMode] = useState<CoquetuteMode | undefined>(mode);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [toolActivity, setToolActivity] = useState<string>('');
+  
+  // Debug focus changes
+  const handleInputFocusChange = useCallback((focused: boolean) => {
+    console.log(`[CoquetuteApp] Input focus changed: ${focused}`);
+    setInputFocused(focused);
+  }, []);
+
+  // Listen for immediate acknowledgments and tool activity from stderr
+  useEffect(() => {
+    const originalStderrWrite = process.stderr.write;
+    
+    process.stderr.write = function(chunk: any, encoding?: any, callback?: any) {
+      try {
+        const data = chunk.toString();
+        
+        // Try to parse as structured message
+        if (data.trim().startsWith('{')) {
+          const parsed = JSON.parse(data.trim());
+          
+          // Handle personality acknowledgments
+          if (parsed.type === 'assistant_message' && parsed.metadata?.source === 'personality_acknowledgment') {
+            const ackMessage: Message = {
+              id: `ack_${Date.now()}`,
+              role: 'assistant',
+              content: parsed.content,
+              timestamp: new Date(),
+              metadata: { 
+                immediate: true, 
+                source: 'personality_acknowledgment',
+                ...parsed.metadata 
+              }
+            };
+            
+            setMessages(prev => [...prev, ackMessage]);
+          }
+          
+          // Handle tool activity updates
+          if (parsed.type === 'tool_activity') {
+            setToolActivity(parsed.activity || '');
+            
+            // Auto-clear tool activity after delay
+            if (parsed.activity) {
+              setTimeout(() => setToolActivity(''), 3000);
+            }
+          }
+          
+          // Handle tool execution blurbs
+          if (parsed.type === 'tool_blurb') {
+            const blurbMessage: Message = {
+              id: `tool_${Date.now()}`,
+              role: 'assistant',
+              content: `🔧 ${parsed.content}`,
+              timestamp: new Date(),
+              metadata: { 
+                immediate: true, 
+                source: 'tool_execution',
+                tool_name: parsed.tool_name
+              }
+            };
+            
+            setMessages(prev => [...prev, blurbMessage]);
+          }
+        }
+      } catch (e) {
+        // Not JSON or not our message, continue normally
+      }
+      
+      // Call original stderr.write
+      return originalStderrWrite.call(this, chunk, encoding, callback);
+    };
+    
+    // Cleanup on unmount
+    return () => {
+      process.stderr.write = originalStderrWrite;
+    };
+  }, []);
+
+  const messageIdCounter = useRef(0);
+
+  // Load initial status
+  useEffect(() => {
+    console.log('[CoquetuteApp] Initializing engine');
+    engine.initialize(currentMode).then(() => {
+      console.log('[CoquetuteApp] Engine initialized');
+      loadStatus();
+    }).catch(error => {
+      console.error('[CoquetuteApp] Engine initialization failed:', error);
+    });
+  }, []);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const status = await engine.getStatus();
+      setCurrentProvider(status.fallback_chain.current);
+      setCurrentPersonality(status.personality.current);
+    } catch (error) {
+      console.error('Failed to load status:', error);
+    }
+  }, [engine]);
+
+  // Handle global key combinations - only when not typing
+  useInput((input, key) => {
+    logger.logInputEvent('keypress', `input="${input}" key=${JSON.stringify(key)}`);
+    
+    // Don't handle non-ctrl keys when input is focused, but allow Ctrl+key shortcuts
+    if (inputFocused && !key.ctrl) return;
+    
+    if (key.ctrl) {
+      switch (key.name) {
+        case 'c':
+          exit(new Error('User requested exit'));
+          break;
+        case 't':
+          // Only allow provider toggle if not in local-only mode
+          if (!currentMode?.local_only) {
+            handleToggleProvider();
+          } else {
+            setStatusMessage('Provider toggle disabled in local-only mode');
+            setTimeout(() => setStatusMessage(''), 2000);
+          }
+          break;
+        case 'p':
+          handleTogglePersonality();
+          break;
+        case 's':
+          setStreamEnabled(prev => !prev);
+          setStatusMessage(`Streaming ${streamEnabled ? 'disabled' : 'enabled'}`);
+          setTimeout(() => setStatusMessage(''), 2000);
+          break;
+        case 'l':
+          handleToggleLocalMode();
+          break;
+        case 'o':
+          // Toggle tools (only works in local-only mode)
+          if (currentMode?.local_only) {
+            handleToggleTools();
+          } else {
+            setStatusMessage('Tools toggle only available in local-only mode');
+            setTimeout(() => setStatusMessage(''), 2000);
+          }
+          break;
+        case 'h':
+          setShowHelp(prev => !prev);
+          break;
+      }
+    }
+
+    // Slash commands
+    if (input === '/') {
+      // Handle slash commands in input
+    }
+  }, { isActive: !inputFocused });
+
+  const handleToggleProvider = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const newProvider = await engine.toggleProvider();
+      setCurrentProvider(newProvider);
+      setStatusMessage(`Switched to ${newProvider}`);
+      setTimeout(() => setStatusMessage(''), 2000);
+    } catch (error: any) {
+      logger.logError('submit', error);
+      setStatusMessage(`Error: ${error.message}`);
+      setTimeout(() => setStatusMessage(''), 5000);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [engine]);
+
+  const handleTogglePersonality = useCallback(async () => {
+    try {
+      const newPersonality = await engine.togglePersonality();
+      setCurrentPersonality(newPersonality);
+      setStatusMessage(`Switched to ${newPersonality} personality`);
+      setTimeout(() => setStatusMessage(''), 2000);
+    } catch (error: any) {
+      setStatusMessage(`Error: ${error.message}`);
+      setTimeout(() => setStatusMessage(''), 5000);
+    }
+  }, [engine]);
+
+  const handleSubmit = useCallback(async (userInput: string) => {
+    console.log(`[CoquetuteApp] handleSubmit called with: "${userInput}"`);
+    console.log(`[CoquetuteApp] isLoading: ${isLoading}`);
+    
+    logger.logInputEvent('submit', userInput);
+    if (!userInput.trim()) {
+      logger.logError('submit', 'Empty input prevented submission');
+      console.log(`[CoquetuteApp] Empty input, returning`);
+      return;
+    }
+    if (isLoading) {
+      logger.logError('submit', 'Submission prevented - already loading');
+      console.log(`[CoquetuteApp] Already loading, returning`);
+      return;
+    }
+    
+    console.log(`[CoquetuteApp] Proceeding with submission...`);
+
+    const messageId = (++messageIdCounter.current).toString();
+    
+    // Set a timeout to prevent infinite hanging
+    const timeoutId = setTimeout(() => {
+      console.log(`[CoquetuteApp] TIMEOUT! Resetting isLoading to false`);
+      setIsLoading(false);
+      setStatusMessage('Request timed out');
+    }, 10000); // 10 second timeout
+    
+    // Add user message
+    const userMessage: Message = {
+      id: messageId + '_user',
+      role: 'user',
+      content: userInput,
+      timestamp: new Date()
+    };
+    
+    console.log(`[CoquetuteApp] Adding user message to history`);
+    setMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsLoading(true);
+
+    try {
+      logger.logEngineEvent('processing_start', { 
+        streamEnabled,
+        mode: currentMode
+      });
+      
+      if (streamEnabled) {
+        // Handle streaming response
+        logger.logEngineEvent('streaming_start');
+        const assistantMessage: Message = {
+          id: messageId + '_assistant',
+          role: 'assistant',
+          content: '',
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, assistantMessage]);
+
+        console.log(`[CoquetuteApp] Calling engine.processMessage...`);
+        const streamGenerator = await engine.processMessage(userInput, { 
+          stream: true,
+          mode: currentMode
+        });
+        console.log(`[CoquetuteApp] Got stream generator:`, streamGenerator);
+        
+        if (Symbol.asyncIterator in streamGenerator) {
+          for await (const chunk of streamGenerator) {
+            if (chunk.content) {
+              setMessages(prev => 
+                prev.map(msg => 
+                  msg.id === assistantMessage.id 
+                    ? { ...msg, content: msg.content + chunk.content }
+                    : msg
+                )
+              );
+            }
+
+            if (chunk.metadata?.thinking) {
+              setStatusMessage(chunk.metadata.thinking);
+            }
+          }
+
+          // Get final response metadata
+          const finalResponse = await streamGenerator.return();
+          if (finalResponse?.value) {
+            setMessages(prev => 
+              prev.map(msg => 
+                msg.id === assistantMessage.id 
+                  ? { ...msg, metadata: finalResponse.value.metadata }
+                  : msg
+              )
+            );
+          }
+        }
+      } else {
+        // Handle blocking response
+        logger.logEngineEvent('blocking_start');
+        const response = await engine.processMessage(userInput, { 
+          stream: false,
+          mode: currentMode
+        });
+        
+        if ('content' in response) {
+          const assistantMessage: Message = {
+            id: messageId + '_assistant',
+            role: 'assistant',
+            content: response.content,
+            timestamp: new Date(),
+            metadata: response.metadata
+          };
+          
+          setMessages(prev => [...prev, assistantMessage]);
+        }
+      }
+    } catch (error: any) {
+      const errorMessage: Message = {
+        id: messageId + '_error',
+        role: 'assistant',
+        content: `Error: ${error.message}`,
+        timestamp: new Date(),
+        metadata: { error: true }
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      clearTimeout(timeoutId);
+      setIsLoading(false);
+      setStatusMessage('');
+    }
+  }, [engine, isLoading, streamEnabled, debug]);
+
+  const handleToggleLocalMode = useCallback(() => {
+    const newMode: CoquetuteMode = {
+      ...currentMode!,
+      local_only: !currentMode?.local_only,
+      with_tools: !currentMode?.local_only ? false : currentMode?.with_tools ?? false,
+      streaming: currentMode?.streaming ?? false,
+      debug: currentMode?.debug ?? false,
+      personality_only: currentMode?.personality_only ?? false,
+      approval_mode: currentMode?.approval_mode ?? 'auto'
+    };
+    setCurrentMode(newMode);
+    
+    const statusMsg = newMode.local_only 
+      ? '🏠 Local-only mode enabled - no external AI providers'
+      : '🌐 Hybrid mode enabled - external AI providers available';
+    
+    setStatusMessage(statusMsg);
+    setTimeout(() => setStatusMessage(''), 3000);
+
+    // Reinitialize engine with new mode
+    console.log('[CoquetuteApp] Reinitializing engine with new mode');
+    engine.initialize(newMode).catch(error => {
+      console.error('[CoquetuteApp] Engine reinitialization failed:', error);
+    });
+  }, [currentMode, engine]);
+
+  const handleToggleTools = useCallback(() => {
+    if (!currentMode?.local_only) {
+      setStatusMessage('Tools only available in local-only mode');
+      setTimeout(() => setStatusMessage(''), 2000);
+      return;
+    }
+
+    const newMode = {
+      ...currentMode,
+      with_tools: !currentMode?.with_tools
+    };
+    setCurrentMode(newMode);
+    
+    const statusMsg = newMode.with_tools 
+      ? '🔧 Local tools enabled - filesystem, shell, and web access available'
+      : '💬 Tools disabled - conversation only mode';
+    
+    setStatusMessage(statusMsg);
+    setTimeout(() => setStatusMessage(''), 3000);
+  }, [currentMode]);
+
+  const handleClear = useCallback(() => {
+    setMessages([]);
+    engine.clearHistory();
+    setStatusMessage('Conversation cleared');
+    setTimeout(() => setStatusMessage(''), 1000);
+  }, [engine]);
+
+  if (showHelp) {
+    return (
+      <Box flexDirection="column" padding={1}>
+        <Text bold color="blue">🎭 Coquette Help</Text>
+        <Text>Interactive AI personality wrapper system</Text>
+        
+        <Box marginTop={1}>
+          <Text bold color="yellow">Keyboard Shortcuts:</Text>
+        </Box>
+        <Text>  Ctrl+C - Exit</Text>
+        <Text>  Ctrl+L - Toggle local-only mode {currentMode?.local_only ? '(currently ON)' : '(currently OFF)'}</Text>
+        <Text>  Ctrl+O - Toggle tools {currentMode?.with_tools ? '(currently ON)' : '(currently OFF)'}</Text>
+        <Text>  Ctrl+T - Toggle provider {currentMode?.local_only ? '(disabled in local-only)' : '(Claude ↔ Gemini)'}</Text>
+        <Text>  Ctrl+P - Toggle personality</Text>
+        <Text>  Ctrl+S - Toggle streaming mode</Text>
+        <Text>  Ctrl+H - Toggle this help</Text>
+        
+        <Box marginTop={1}>
+          <Text bold color="yellow">Slash Commands:</Text>
+        </Box>
+        <Text>  /clear - Clear conversation</Text>
+        <Text>  /status - Show system status</Text>
+        <Text>  /local - Toggle local-only mode</Text>
+        <Text>  /tools - Toggle local tools (local-only mode only)</Text>
+        <Text>  /provider [name] - Switch provider</Text>
+        <Text>  /personality [name] - Switch personality</Text>
+        
+        <Box marginTop={1}>
+          <Text bold color="yellow">Current Mode:</Text>
+        </Box>
+        <Text>  Mode: {currentMode?.local_only ? '🏠 Local-only' : '🌐 Hybrid'}</Text>
+        {currentMode?.local_only && (
+          <Text>  Tools: {currentMode?.with_tools ? '🔧 Enabled' : '💬 Disabled'}</Text>
+        )}
+        
+        <Box marginTop={2}>
+          <Text color="gray">Press Ctrl+H again to close help</Text>
+        </Box>
+      </Box>
+    );
+  }
+
+  const inputHeight = 4;
+  const statusHeight = 1;
+  const availableHeight = height - inputHeight - statusHeight - 2; // padding
+
+  return (
+    <Box flexDirection="column" width={width} height={height}>
+      {/* Chat History */}
+      <Box flexGrow={1} height={availableHeight}>
+        <ChatHistory 
+          messages={messages}
+          maxHeight={availableHeight}
+          debug={debug}
+        />
+      </Box>
+
+      {/* Status Bar */}
+      <StatusBar
+        currentProvider={currentProvider}
+        currentPersonality={currentPersonality}
+        streamEnabled={streamEnabled}
+        isLoading={isLoading}
+        statusMessage={statusMessage}
+        mode={currentMode}
+        toolActivity={toolActivity}
+      />
+
+      {/* Input Area */}
+      <Box height={inputHeight} paddingY={1}>
+        <MultilineInput
+          value={input}
+          onChange={setInput}
+          onSubmit={handleSubmit}
+          onFocusChange={handleInputFocusChange}
+          disabled={isLoading}
+          placeholder={isLoading ? 'Processing...' : 'Type your message...'}
+          history={messages
+            .filter(msg => msg.role === 'user')
+            .map(msg => msg.content)
+            .slice(-20) // Keep last 20 user inputs
+          }
+          multiline={true}
+          showLineNumbers={false}
+          maxLines={3}
+        />
+      </Box>
+    </Box>
+  );
+};

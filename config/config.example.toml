@@ -1,0 +1,185 @@
+# Coquette Configuration Example
+# Copy to ~/.coquette/config.toml and customize
+
+# Default provider and personality
+default_provider = "claude"
+default_personality = "ani"
+
+# Working directory
+cwd = "."
+
+# Debug and logging
+debug = false
+log_level = "info"
+
+# Provider fallback chain
+[fallback_chain]
+primary = "claude"
+fallbacks = ["gemini", "ollama_local"]
+timeout_ms = 30000
+retry_attempts = 2
+
+# Technical AI Providers
+[model_providers.claude]
+name = "Claude Code CLI"
+wire_api = "claude_code"
+env_key_instructions = "Ensure Claude Code CLI is installed and in your PATH"
+request_max_retries = 3
+stream_max_retries = 5
+stream_idle_timeout_ms = 180000
+enabled = true
+
+[model_providers.gemini]
+name = "Gemini CLI"
+wire_api = "gemini_cli"
+env_key_instructions = "Ensure gemini-cli is installed and configured: npm install -g @google/generative-ai-cli"
+binary_path = "gemini"  # or full path if not in PATH
+request_max_retries = 4
+stream_max_retries = 10
+stream_idle_timeout_ms = 300000
+enabled = true
+
+[model_providers.openai]
+name = "OpenAI"
+base_url = "https://api.openai.com/v1"
+wire_api = "responses"
+env_key = "OPENAI_API_KEY"
+env_key_instructions = "Get your API key from https://platform.openai.com/api-keys"
+request_max_retries = 4
+stream_max_retries = 10
+stream_idle_timeout_ms = 300000
+enabled = false
+
+[model_providers.anthropic]
+name = "Anthropic Claude API"
+base_url = "https://api.anthropic.com/v1"
+wire_api = "chat"
+env_key = "ANTHROPIC_API_KEY"
+env_key_instructions = "Get your API key from https://console.anthropic.com/"
+request_max_retries = 4
+stream_max_retries = 10
+stream_idle_timeout_ms = 300000
+enabled = false
+
+# Personality AI Provider (local Ollama recommended)
+[personality_provider]
+name = "Local Ollama"
+base_url = "http://localhost:11434"
+model = "gemma2:2b"  # or your preferred model
+temperature = 0.7
+timeout_ms = 120000
+num_ctx = 32768  # 32k context window
+num_predict = 4096
+enabled = true
+
+# Available Personalities
+[personalities.ani]
+name = "Ani"
+description = "Technical but playful coding assistant"
+file = "~/.coquette/personalities/ani.txt"
+temperature = 0.7
+max_tokens = 4096
+context_length = 32768
+enabled = true
+
+[personalities.professional]
+name = "Professional"
+description = "Formal technical consultant"
+file = "~/.coquette/personalities/professional.txt"
+temperature = 0.5
+max_tokens = 4096
+context_length = 32768
+enabled = true
+
+[personalities.casual]
+name = "Casual"
+description = "Friendly and relaxed assistant"
+file = "~/.coquette/personalities/casual.txt"
+temperature = 0.8
+max_tokens = 4096
+context_length = 32768
+enabled = false
+
+# Query Detection Configuration
+[detection]
+technical_keywords = [
+    "files", "project", "code", "error", "debug", "git", "build", "test",
+    "function", "variable", "class", "import", "export", "npm", "install",
+    "directory", "folder", "path", "config", "package", "database", "api",
+    "server", "client", "deployment", "docker", "kubernetes", "CI", "CD"
+]
+personality_keywords = [
+    "how are you", "feeling", "think about", "opinion", "like", "prefer",
+    "personality", "character", "chat", "talk", "conversation", "hello",
+    "hi", "thanks", "thank you", "please", "sorry", "excuse me"
+]
+technical_threshold = 0.3
+always_personality = false
+
+# Terminal UI Configuration
+[tui]
+disable_mouse_capture = false
+enable_streaming = true
+show_thinking = true
+max_history_entries = 100
+theme = "default"
+
+# History and Persistence
+[history]
+persistence = "save-all"  # or "none"
+location = "~/.coquette/history.jsonl"
+max_bytes = 10485760  # 10MB
+
+# Local-Only Mode Configuration
+[local_mode]
+default_enabled = false
+auto_enable_tools = false
+safety_level = "moderate"  # strict, moderate, permissive
+
+# Local Tool Configuration
+[local_tools]
+max_file_size_mb = 10
+blocked_paths = ["/etc", "/sys", "/proc", "/root"]
+blocked_commands = ["rm -rf /", "sudo rm", "mkfs", "dd if="]
+require_confirmation = ["delete", "remove", "install", "sudo", "git push"]
+allowed_operations = {
+  filesystem = true,
+  shell_commands = true, 
+  web_requests = true,
+  system_info = true
+}
+
+# Advanced Provider Configuration Examples
+
+# Custom OpenRouter provider
+[model_providers.openrouter]
+name = "OpenRouter"
+base_url = "https://openrouter.ai/api/v1"
+wire_api = "chat"
+env_key = "OPENROUTER_API_KEY"
+http_headers = { "HTTP-Referer" = "https://github.com/your-username/coquette" }
+enabled = false
+
+# Azure OpenAI provider  
+[model_providers.azure]
+name = "Azure OpenAI"
+base_url = "https://your-resource.openai.azure.com/openai"
+wire_api = "responses"
+env_key = "AZURE_OPENAI_API_KEY"
+query_params = { "api-version" = "2025-04-01-preview" }
+enabled = false
+
+# Local Ollama provider as technical AI fallback
+[model_providers.ollama_local]
+name = "Local Ollama Technical"
+base_url = "http://localhost:11434"
+wire_api = "chat"
+model = "llama3:8b"  # or your preferred technical model
+# No env_key needed for local Ollama
+request_max_retries = 2
+stream_idle_timeout_ms = 120000
+timeout_ms = 120000
+num_ctx = 32768  # 32k context window
+num_predict = 4096
+temperature = 0.7
+enabled = false  # Enable if you want Ollama as technical AI

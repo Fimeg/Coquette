@@ -1,0 +1,339 @@
+/**
+ * Simple tool implementations for Coquette architecture
+ * Clean, focused tools without heavy dependencies
+ */
+
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { glob as globby } from 'glob';
+
+const execAsync = promisify(exec);
+
+export interface ToolResult {
+  success: boolean;
+  output: string;
+  error?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface Tool {
+  name: string;
+  description: string;
+  execute(params: Record<string, unknown>): Promise<ToolResult>;
+}
+
+/**
+ * Read file contents
+ */
+export const readFileTool: Tool = {
+  name: 'read_file',
+  description: 'Read the contents of a file',
+  
+  async execute(params: Record<string, unknown>): Promise<ToolResult> {
+    const filePath = params.file_path as string;
+    const offset = params.offset as number || 0;
+    const limit = params.limit as number;
+
+    if (!filePath) {
+      return {
+        success: false,
+        output: '',
+        error: 'file_path parameter is required'
+      };
+    }
+
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      const lines = content.split('\n');
+      
+      let result = lines;
+      if (offset > 0) {
+        result = lines.slice(offset);
+      }
+      if (limit) {
+        result = result.slice(0, limit);
+      }
+      
+      return {
+        success: true,
+        output: result.join('\n'),
+        metadata: {
+          file_path: filePath,
+          lines_read: result.length,
+          total_lines: lines.length
+        }
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        output: '',
+        error: `Failed to read file: ${error.message}`
+      };
+    }
+  }
+};
+
+/**
+ * Write file contents
+ */
+export const writeFileTool: Tool = {
+  name: 'write_file',
+  description: 'Write content to a file',
+  
+  async execute(params: Record<string, unknown>): Promise<ToolResult> {
+    const filePath = params.file_path as string;
+    const content = params.content as string;
+
+    if (!filePath || content === undefined) {
+      return {
+        success: false,
+        output: '',
+        error: 'file_path and content parameters are required'
+      };
+    }
+
+    try {
+      // Ensure directory exists
+      const dir = path.dirname(filePath);
+      await fs.mkdir(dir, { recursive: true });
+      
+      await fs.writeFile(filePath, content, 'utf-8');
+      
+      return {
+        success: true,
+        output: `Successfully wrote ${content.length} characters to ${filePath}`,
+        metadata: {
+          file_path: filePath,
+          bytes_written: Buffer.byteLength(content, 'utf-8')
+        }
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        output: '',
+        error: `Failed to write file: ${error.message}`
+      };
+    }
+  }
+};
+
+/**
+ * List directory contents
+ */
+export const listDirectoryTool: Tool = {
+  name: 'list_directory',
+  description: 'List files and directories in a path',
+  
+  async execute(params: Record<string, unknown>): Promise<ToolResult> {
+    const directoryPath = (params.directory_path as string) || '.';
+
+    try {
+      const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+      const items = entries.map(entry => ({
+        name: entry.name,
+        type: entry.isDirectory() ? 'directory' : 'file',
+        path: path.join(directoryPath, entry.name)
+      }));
+
+      const output = items
+        .map(item => `${item.type === 'directory' ? '📁' : '📄'} ${item.name}`)
+        .join('\n');
+
+      return {
+        success: true,
+        output,
+        metadata: {
+          directory_path: directoryPath,
+          total_items: items.length,
+          directories: items.filter(i => i.type === 'directory').length,
+          files: items.filter(i => i.type === 'file').length
+        }
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        output: '',
+        error: `Failed to list directory: ${error.message}`
+      };
+    }
+  }
+};
+
+/**
+ * Execute shell command
+ */
+export const shellTool: Tool = {
+  name: 'run_command',
+  description: 'Execute a shell command (use with caution)',
+  
+  async execute(params: Record<string, unknown>): Promise<ToolResult> {
+    const command = params.command as string;
+
+    if (!command) {
+      return {
+        success: false,
+        output: '',
+        error: 'command parameter is required'
+      };
+    }
+
+    try {
+      const { stdout, stderr } = await execAsync(command, {
+        cwd: process.cwd(),
+        timeout: 30000 // 30 second timeout
+      });
+
+      return {
+        success: true,
+        output: stdout || stderr || 'Command completed successfully',
+        metadata: {
+          command,
+          has_stderr: !!stderr
+        }
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        output: error.stdout || '',
+        error: `Command failed: ${error.message}`,
+        metadata: {
+          command,
+          exit_code: error.code,
+          stderr: error.stderr
+        }
+      };
+    }
+  }
+};
+
+/**
+ * Find files using glob patterns
+ */
+export const findFilesTool: Tool = {
+  name: 'find_files',
+  description: 'Find files matching glob patterns (e.g., **/*.js, src/**/*.ts)',
+  
+  async execute(params: Record<string, unknown>): Promise<ToolResult> {
+    const pattern = params.pattern as string;
+    const searchPath = (params.path as string) || '.';
+
+    if (!pattern) {
+      return {
+        success: false,
+        output: '',
+        error: 'pattern parameter is required'
+      };
+    }
+
+    try {
+      const files = await globby(pattern, {
+        cwd: searchPath,
+        absolute: false
+      });
+
+      const output = files.length > 0 
+        ? files.join('\n')
+        : `No files found matching pattern: ${pattern}`;
+
+      return {
+        success: true,
+        output,
+        metadata: {
+          pattern,
+          search_path: searchPath,
+          files_found: files.length
+        }
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        output: '',
+        error: `Failed to find files: ${error.message}`
+      };
+    }
+  }
+};
+
+/**
+ * Search content in files
+ */
+export const searchContentTool: Tool = {
+  name: 'search_content',
+  description: 'Search for text content within files using regex patterns',
+  
+  async execute(params: Record<string, unknown>): Promise<ToolResult> {
+    const pattern = params.pattern as string;
+    const searchPath = (params.path as string) || '.';
+    const include = params.include as string || '**/*';
+
+    if (!pattern) {
+      return {
+        success: false,
+        output: '',
+        error: 'pattern parameter is required'
+      };
+    }
+
+    try {
+      // Find files to search
+      const files = await globby(include, {
+        cwd: searchPath,
+        absolute: false,
+        nodir: true
+      });
+
+      const regex = new RegExp(pattern, 'gi');
+      const matches = [];
+
+      for (const file of files.slice(0, 100)) { // Limit to first 100 files
+        try {
+          const filePath = path.join(searchPath, file);
+          const content = await fs.readFile(filePath, 'utf-8');
+          const lines = content.split('\n');
+          
+          lines.forEach((line, index) => {
+            if (regex.test(line)) {
+              matches.push(`${file}:${index + 1}: ${line.trim()}`);
+            }
+          });
+        } catch (err) {
+          // Skip files that can't be read
+          continue;
+        }
+      }
+
+      const output = matches.length > 0
+        ? matches.slice(0, 50).join('\n') // Limit to first 50 matches
+        : `No matches found for pattern: ${pattern}`;
+
+      return {
+        success: true,
+        output,
+        metadata: {
+          pattern,
+          search_path: searchPath,
+          files_searched: files.length,
+          matches_found: matches.length
+        }
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        output: '',
+        error: `Failed to search content: ${error.message}`
+      };
+    }
+  }
+};
+
+// Export all tools
+export const simplifiedTools: Tool[] = [
+  readFileTool,
+  writeFileTool,
+  listDirectoryTool,
+  shellTool,
+  findFilesTool,
+  searchContentTool
+];

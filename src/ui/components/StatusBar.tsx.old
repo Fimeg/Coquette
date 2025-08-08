@@ -1,0 +1,116 @@
+/**
+ * Status bar component - shows current provider, personality, and system status
+ */
+
+import React, { useState, useEffect } from 'react';
+import { Box, Text } from 'ink';
+import chalk from 'chalk';
+import { CoquetuteMode } from '../../core/types.js';
+
+interface StatusBarProps {
+  currentProvider: string;
+  currentPersonality: string;
+  streamEnabled: boolean;
+  isLoading: boolean;
+  statusMessage?: string;
+  mode?: CoquetuteMode;
+  toolActivity?: string;
+}
+
+const ThinkingIndicator: React.FC = () => {
+  const [frame, setFrame] = useState(0);
+  const frames = ['💭 thinking', '💭 thinking.', '💭 thinking..', '💭 thinking...'];
+  
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFrame(prev => (prev + 1) % frames.length);
+    }, 500);
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  return <Text color="blue">{frames[frame]}</Text>;
+};
+
+export const StatusBar: React.FC<StatusBarProps> = ({
+  currentProvider,
+  currentPersonality,
+  streamEnabled,
+  isLoading,
+  statusMessage,
+  mode,
+  toolActivity
+}) => {
+  const getProviderIcon = (provider: string): string => {
+    switch (provider) {
+      case 'claude': return '🤖';
+      case 'gemini': return '💎';
+      case 'openai': return '🧠';
+      default: return '⚡';
+    }
+  };
+
+  const getPersonalityIcon = (personality: string): string => {
+    switch (personality) {
+      case 'ani': return '🎭';
+      case 'professional': return '💼';
+      case 'casual': return '😊';
+      default: return '🎪';
+    }
+  };
+
+  return (
+    <Box 
+      paddingX={1} 
+      borderStyle="single" 
+      borderTop={true}
+      borderColor="gray"
+      justifyContent="space-between"
+    >
+      {/* Left side - Provider and Personality */}
+      <Box>
+        {mode?.local_only ? (
+          <Text color="green">🏠 local-only</Text>
+        ) : (
+          <Text color="blue">
+            {getProviderIcon(currentProvider)} {currentProvider}
+          </Text>
+        )}
+        <Text color="gray" dimColor> | </Text>
+        <Text color="magenta">
+          {getPersonalityIcon(currentPersonality)} {currentPersonality}
+        </Text>
+        <Text color="gray" dimColor> | </Text>
+        {mode?.with_tools && (
+          <>
+            <Text color="yellow">🔧 tools</Text>
+            <Text color="gray" dimColor> | </Text>
+          </>
+        )}
+        <Text color={streamEnabled ? 'green' : 'yellow'}>
+          {streamEnabled ? '📡 stream' : '📦 block'}
+        </Text>
+      </Box>
+
+      {/* Center - Status Message */}
+      <Box flexGrow={1} justifyContent="center">
+        {toolActivity ? (
+          <Text color="cyan">🔧 {toolActivity}</Text>
+        ) : statusMessage ? (
+          <Text color="yellow">{statusMessage}</Text>
+        ) : isLoading ? (
+          <ThinkingIndicator />
+        ) : (
+          <Text color="gray" dimColor>Ready</Text>
+        )}
+      </Box>
+
+      {/* Right side - Controls */}
+      <Box>
+        <Text color="gray" dimColor>
+          Ctrl+T provider • Ctrl+P personality • Ctrl+H help
+        </Text>
+      </Box>
+    </Box>
+  );
+};

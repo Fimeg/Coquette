@@ -1,0 +1,432 @@
+/**
+ * Advanced multiline input component - adapted from Codex CLI
+ * Features: History, file suggestions, paste support, smart navigation
+ */
+
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Box, Text, useInput } from 'ink';
+import chalk from 'chalk';
+
+import { TextBuffer } from '../terminal/TextBuffer.js';
+import { useTerminalSize } from '../../hooks/useTerminalSize.js';
+
+interface MultilineInputProps {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: (value: string) => void;
+  onFocusChange?: (focused: boolean) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  history?: string[];
+  onHistoryRequest?: () => string[];
+  multiline?: boolean;
+  showLineNumbers?: boolean;
+  maxLines?: number;
+}
+
+interface InputState {
+  buffer: TextBuffer;
+  historyIndex: number | null;
+  draftInput: string;
+  isMultiline: boolean;
+}
+
+export const MultilineInput: React.FC<MultilineInputProps> = ({
+  value,
+  onChange,
+  onSubmit,
+  onFocusChange,
+  placeholder = 'Type your message...',
+  disabled = false,
+  history = [],
+  onHistoryRequest,
+  multiline = true,
+  showLineNumbers = false,
+  maxLines = 10
+}) => {
+  const { width: terminalWidth } = useTerminalSize();
+  const [state, setState] = useState<InputState>({
+    buffer: new TextBuffer(value),
+    historyIndex: null,
+    draftInput: '',
+    isMultiline: false
+  });
+
+  const inputRef = useRef<any>(null); // Using any to bypass DOMElement type issues
+
+  // Update buffer when value changes externally
+  useEffect(() => {
+    setState(prev => ({
+      ...prev,
+      buffer: new TextBuffer(value)
+    }));
+  }, [value]);
+
+  // Ensure parent gets updates when buffer changes
+  // TEMP: Disabled for debugging
+  // useEffect(() => {
+  //   const currentValue = state.buffer.toString();
+  //   if (currentValue !== value) {
+  //     onChange(currentValue);
+  //   }
+  // }, [state.buffer, onChange, value]);
+
+  // Report focus state to parent and manage focus internally
+  useEffect(() => {
+    const focused = !disabled;
+    console.log(`[MultilineInput] Focus changed: disabled=${disabled}, focused=${focused}`);
+    onFocusChange?.(focused);
+    return () => onFocusChange?.(false); // Cleanup on unmount
+  }, [disabled, onFocusChange]);
+
+  // Handle input with advanced key combinations
+  useInput(
+    (input, key: {
+      name?: string;
+      ctrl: boolean;
+      meta: boolean;
+      shift: boolean;
+      sequence?: string;
+      code?: string;
+      upArrow?: boolean;
+      downArrow?: boolean;
+      leftArrow?: boolean;
+      rightArrow?: boolean;
+      return?: boolean;
+      escape?: boolean;
+      tab?: boolean;
+      backspace?: boolean;
+      delete?: boolean;
+      pageDown?: boolean;
+      pageUp?: boolean;
+      [key: string]: unknown;
+    }) => {
+      console.log(`[MultilineInput] useInput triggered: input="${input}", key=${JSON.stringify(key)}, disabled=${disabled}`);
+      
+      if (disabled) {
+        console.log(`[MultilineInput] Input disabled, ignoring`);
+        return;
+      }
+
+      const { buffer, historyIndex, draftInput } = state;
+
+      // Handle special key combinations
+      if (key.ctrl) {
+        switch (key.name) {
+          case 'c':
+            // Interrupt/Cancel
+            onChange('');
+            setState(prev => ({ ...prev, buffer: new TextBuffer('') }));
+            return;
+
+          case 'v':
+            // Paste from clipboard (if available)
+            handlePaste();
+            return;
+
+          case 'l':
+            // Clear screen (traditional terminal behavior)
+            return;
+
+          case 'w':
+            // Delete word backward
+            handleDeleteWord();
+            return;
+
+          case 'k':
+            // Delete to end of line
+            handleDeleteToEndOfLine();
+            return;
+
+          case 'a':
+            // Move to beginning of line
+            buffer.moveToBol();
+            updateFromBuffer();
+            return;
+
+          case 'e':
+            // Move to end of line  
+            buffer.moveToEol();
+            updateFromBuffer();
+            return;
+
+          default:
+            break;
+        }
+      }
+
+      // Handle arrow keys and navigation
+      if (key.name || key.return) {
+        switch (key.name || (key.return ? 'return' : '')) {
+          case 'return':
+            console.log(`[MultilineInput] Enter pressed: shift=${key.shift}, multiline=${multiline}, buffer="${buffer.toString()}", disabled=${disabled}`);
+            if (disabled) {
+              console.log('[MultilineInput] Input disabled - ignoring Enter');
+              return;
+            }
+            if (key.shift && multiline) {
+              // Shift+Enter: Insert newline
+              console.log(`[MultilineInput] Shift+Enter: inserting newline`);
+              buffer.insert('\n');
+              setState(prev => ({ ...prev, isMultiline: true, buffer: buffer }));
+              onChange(buffer.toString()); // Update parent with new content
+            } else {
+              // Enter: Submit
+              const content = buffer.toString();
+              console.log(`[MultilineInput] Enter: content="${content}", isMultiline=${state.isMultiline}, onSubmit=${!!onSubmit}`);
+              if (content.trim() || !state.isMultiline) {
+                console.log(`[MultilineInput] Calling onSubmit with: "${content}"`);
+                onSubmit?.(content);
+                // Reset input field
+                const newBuffer = new TextBuffer('');
+                setState(prev => ({
+                  ...prev,
+                  buffer: newBuffer,
+                  historyIndex: null,
+                  draftInput: '',
+                  isMultiline: false
+                }));
+                onChange(''); // Update parent with empty value
+                return; // Prevent further processing
+              }
+            }
+            return;
+
+          case 'up':
+            handleHistoryNavigation('up');
+            return;
+
+          case 'down':  
+            handleHistoryNavigation('down');
+            return;
+
+          case 'left':
+            if (key.ctrl) {
+              // Ctrl+Left: Move word backward
+              buffer.moveWordBackward();
+            } else {
+              buffer.moveLeft();
+            }
+            updateFromBuffer();
+            return;
+
+          case 'right':
+            if (key.ctrl) {
+              // Ctrl+Right: Move word forward
+              buffer.moveWordForward();
+            } else {
+              buffer.moveRight();
+            }
+            updateFromBuffer();
+            return;
+
+          case 'home':
+            buffer.moveToBol();
+            updateFromBuffer();
+            return;
+
+          case 'end':
+            buffer.moveToEol();
+            updateFromBuffer();
+            return;
+
+          case 'backspace':
+            if (key.ctrl) {
+              // Ctrl+Backspace: Delete word backward
+              handleDeleteWord();
+            } else {
+              buffer.backspace();
+            }
+            updateFromBuffer();
+            return;
+
+          case 'delete':
+            buffer.delete();
+            updateFromBuffer();
+            return;
+
+          case 'tab':
+            // Tab completion/suggestions could go here
+            handleTabCompletion();
+            return;
+
+          default:
+            break;
+        }
+      }
+
+      // Regular character input
+      if (input && !key.ctrl && !key.meta) {
+        console.log(`[MultilineInput] Inserting character: "${input}"`);
+        buffer.insert(input);
+        
+        // Force state update to trigger re-render
+        setState(prev => ({ 
+          ...prev, 
+          buffer: buffer // This will trigger re-render
+        }));
+        
+        // Update parent component
+        const newValue = buffer.toString();
+        console.log(`[MultilineInput] Buffer after insert: "${newValue}"`);
+        onChange(newValue);
+      }
+    },
+    { isActive: !disabled }
+  );
+
+  // Debug: Log current state
+  useEffect(() => {
+    console.log(`[MultilineInput] State update - disabled: ${disabled}, isActive: ${!disabled}, buffer: "${state.buffer.toString()}"`);
+  }, [disabled, state.buffer]);
+
+  // Helper functions
+  const updateFromBuffer = useCallback(() => {
+    const buffer = state.buffer;
+    const newValue = buffer.toString();
+    console.log(`[MultilineInput] updateFromBuffer called: "${newValue}"`);
+    
+    // Force state update to trigger re-render
+    setState(prev => ({ 
+      ...prev, 
+      buffer: buffer // Ensure React knows the buffer changed
+    }));
+    
+    onChange(newValue);
+  }, [state.buffer, onChange]);
+
+  const handleHistoryNavigation = useCallback((direction: 'up' | 'down') => {
+    const availableHistory = onHistoryRequest?.() || history;
+    if (availableHistory.length === 0) return;
+
+    setState(prev => {
+      let newIndex: number | null;
+      
+      if (direction === 'up') {
+        if (prev.historyIndex === null) {
+          // First time accessing history - save current input as draft
+          newIndex = availableHistory.length - 1;
+          return {
+            ...prev,
+            historyIndex: newIndex,
+            draftInput: prev.buffer.toString(),
+            buffer: new TextBuffer(availableHistory[newIndex])
+          };
+        } else if (prev.historyIndex > 0) {
+          newIndex = prev.historyIndex - 1;
+          return {
+            ...prev,
+            historyIndex: newIndex,
+            buffer: new TextBuffer(availableHistory[newIndex])
+          };
+        }
+      } else { // down
+        if (prev.historyIndex !== null) {
+          if (prev.historyIndex < availableHistory.length - 1) {
+            newIndex = prev.historyIndex + 1;
+            return {
+              ...prev,
+              historyIndex: newIndex,
+              buffer: new TextBuffer(availableHistory[newIndex])
+            };
+          } else {
+            // Restore draft input
+            return {
+              ...prev,
+              historyIndex: null,
+              buffer: new TextBuffer(prev.draftInput)
+            };
+          }
+        }
+      }
+      
+      return prev;
+    });
+  }, [history, onHistoryRequest]);
+
+  const handleDeleteWord = useCallback(() => {
+    state.buffer.deleteWordBackward();
+    updateFromBuffer();
+  }, [state.buffer, updateFromBuffer]);
+
+  const handleDeleteToEndOfLine = useCallback(() => {
+    state.buffer.deleteToEndOfLine();
+    updateFromBuffer();
+  }, [state.buffer, updateFromBuffer]);
+
+  const handlePaste = useCallback(() => {
+    // In a real implementation, you'd access clipboard
+    // For now, this is a placeholder
+    console.log('Paste requested - clipboard access would be implemented here');
+  }, []);
+
+  const handleTabCompletion = useCallback(() => {
+    // Tab completion logic would go here
+    // Could suggest file paths, commands, etc.
+    console.log('Tab completion requested');
+  }, []);
+
+  // Render the input
+  const renderInput = () => {
+    const content = state.buffer.toString();
+    const lines = content.split('\n');
+    const displayLines = lines.slice(-maxLines); // Show only last N lines
+    
+    if (displayLines.length === 0 || (displayLines.length === 1 && displayLines[0] === '')) {
+      return (
+        <Text color="gray">
+          {placeholder}
+        </Text>
+      );
+    }
+
+    return (
+      <Box flexDirection="column">
+        {displayLines.map((line, index) => {
+          const lineNumber = lines.length - displayLines.length + index + 1;
+          const isCurrentLine = index === displayLines.length - 1;
+          
+          return (
+            <Box key={index}>
+              {showLineNumbers && (
+                <Text color="gray">
+                  {String(lineNumber).padStart(2)} │ 
+                </Text>
+              )}
+              <Text>
+                {line}
+                {isCurrentLine && !disabled && <Text color="green">█</Text>}
+              </Text>
+            </Box>
+          );
+        })}
+      </Box>
+    );
+  };
+
+  return (
+    <Box
+      ref={inputRef}
+      flexDirection="column"
+      width={terminalWidth - 4}
+      borderStyle="round"
+      borderColor={disabled ? "gray" : "blue"}
+      paddingX={1}
+    >
+      {renderInput()}
+      
+      {/* Status line */}
+      <Box justifyContent="space-between" marginTop={1}>
+        <Text color="gray" dimColor>
+          {state.isMultiline ? 'Multiline mode • Shift+Enter for newline • Enter to send' : 'Enter to send • Shift+Enter for multiline'}
+        </Text>
+        
+        {state.historyIndex !== null && (
+          <Text color="yellow">
+            History: {state.historyIndex + 1}/{history.length}
+          </Text>
+        )}
+      </Box>
+    </Box>
+  );
+};

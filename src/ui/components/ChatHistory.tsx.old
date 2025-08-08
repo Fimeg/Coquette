@@ -1,0 +1,174 @@
+/**
+ * Chat history display component with scrolling and formatting
+ */
+
+import React, { useMemo } from 'react';
+import { Box, Text } from 'ink';
+import chalk from 'chalk';
+
+interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  metadata?: any;
+}
+
+interface ChatHistoryProps {
+  messages: Message[];
+  maxHeight: number;
+  debug?: boolean;
+}
+
+export const ChatHistory: React.FC<ChatHistoryProps> = ({
+  messages,
+  maxHeight,
+  debug = false
+}) => {
+  const formattedMessages = useMemo(() => {
+    return messages.map((message, index) => {
+      const isUser = message.role === 'user';
+      const timestamp = message.timestamp.toLocaleTimeString([], { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        second: '2-digit' 
+      });
+      
+      // Format message content with word wrapping
+      const lines = message.content.split('\\n');
+      const wrappedLines: string[] = [];
+      
+      lines.forEach(line => {
+        if (line.length <= 80) {
+          wrappedLines.push(line);
+        } else {
+          // Simple word wrapping
+          const words = line.split(' ');
+          let currentLine = '';
+          
+          words.forEach(word => {
+            if ((currentLine + word).length <= 80) {
+              currentLine += (currentLine ? ' ' : '') + word;
+            } else {
+              if (currentLine) wrappedLines.push(currentLine);
+              currentLine = word;
+            }
+          });
+          
+          if (currentLine) wrappedLines.push(currentLine);
+        }
+      });
+
+      return {
+        ...message,
+        formattedContent: wrappedLines,
+        timestamp: timestamp,
+        isLast: index === messages.length - 1
+      };
+    });
+  }, [messages]);
+
+  const renderMessage = (message: typeof formattedMessages[0]) => {
+    const isUser = message.role === 'user';
+    const isImmediate = message.metadata?.immediate;
+    const isPersonality = message.metadata?.source === 'personality_acknowledgment';
+    const isToolExecution = message.metadata?.source === 'tool_execution';
+    
+    const roleColor = isUser ? 'green' : isPersonality ? 'magenta' : isToolExecution ? 'cyan' : 'blue';
+    const roleIcon = isUser ? '👤' : isPersonality ? '🎭' : isToolExecution ? '🔧' : '🤖';
+    const roleName = isUser ? 'You' : isPersonality ? 'Ani' : isToolExecution ? 'Tools' : 'Coquette';
+
+    return (
+      <Box key={message.id} flexDirection="column" marginBottom={1}>
+        {/* Message header */}
+        <Box>
+          <Text color={roleColor} bold>
+            {roleIcon} {roleName}
+          </Text>
+          {isImmediate && (
+            <Text color="yellow" dimColor>
+              {' '} • immediate
+            </Text>
+          )}
+          <Text color="gray" dimColor>
+            {' '} • {message.timestamp}
+          </Text>
+          {debug && message.metadata && (
+            <Text color="gray" dimColor>
+              {' '} • {message.metadata.technical_provider || 'none'} → {message.metadata.personality_used || 'none'}
+            </Text>
+          )}
+        </Box>
+
+        {/* Message content */}
+        <Box marginLeft={2} flexDirection="column">
+          {message.formattedContent.map((line, lineIndex) => (
+            <Text key={lineIndex}>
+              {line}
+            </Text>
+          ))}
+        </Box>
+
+        {/* Debug metadata */}
+        {debug && message.metadata && !message.metadata.error && (
+          <Box marginLeft={2} marginTop={1}>
+            <Text color="gray" dimColor>
+              🔍 {message.metadata.routing_reason} • {message.metadata.processing_time_ms}ms
+            </Text>
+          </Box>
+        )}
+
+        {/* Error indicator */}
+        {message.metadata?.error && (
+          <Box marginLeft={2}>
+            <Text color="red">❌ Error in response</Text>
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
+  if (messages.length === 0) {
+    return (
+      <Box 
+        height={maxHeight} 
+        justifyContent="center" 
+        alignItems="center" 
+        flexDirection="column"
+      >
+        <Text color="blue" bold>🎭 Welcome to Coquette!</Text>
+        <Text color="gray" dimColor>
+          Your AI assistant with personality and technical prowess
+        </Text>
+        <Box marginTop={1}>
+          <Text color="gray" dimColor>
+            Start typing to begin a conversation...
+          </Text>
+        </Box>
+      </Box>
+    );
+  }
+
+  return (
+    <Box 
+      flexDirection="column" 
+      height={maxHeight}
+      paddingX={1}
+      paddingY={1}
+    >
+      {/* Messages */}
+      <Box flexDirection="column">
+        {formattedMessages.map(renderMessage)}
+      </Box>
+
+      {/* Scroll indicator */}
+      {messages.length > 10 && (
+        <Box justifyContent="center" marginTop={1}>
+          <Text color="gray" dimColor>
+            ••• {messages.length} messages •••
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+};
