@@ -104,9 +104,9 @@ Edit `config/config.toml`:
 
 ```toml
 [models]
-primary = "gemma2:27b"      # Chat & coordination
-reasoning = "deepseek-r1:8b" # Deep thinking
-tools = "gemini-1.5-pro"    # Function calling
+primary = "gemma3:e4b"      # Chat & coordination
+reasoning = "deepseek-r1:32b" # Deep thinking
+tools = "gemini-2.5-pro"    # Function calling
 
 [personality]
 default = "ani"  # ani, professional, casual
@@ -210,7 +210,7 @@ Apache 2.0 License - see [LICENSE](LICENSE) for details.
 
 ## 💭 Philosophy
 
-Coquette is inspired by human cognitive architecture - we don't just respond immediately to stimuli. We route different types of problems to different mental processes, validate our thinking, and maintain personality consistency across interactions.
+Coquette is inspired by human cognitive architecture - we don't just respond immediately to stimuli. We route different types of problems to different mental processes, validate our thinking, and maintain personality consistency across interactions. The primary goal to isolate frustration when working with AI instances lacking a rapport. Allowing for offline functionality of tool use; and coordination with publically available services. 
 
 The goal isn't just better AI responses, but more human-like AI reasoning.
 
