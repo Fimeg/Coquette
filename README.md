@@ -18,7 +18,7 @@ Coquette is a revolutionary AI architecture that thinks before it acts. Unlike s
 **What works:** Basic routing, personality systems, some tool orchestration  
 **What doesn't:** Full recursive validation, complete error recovery, all documented features
 
-If you're looking for production AI tools, this isn't it (yet). If you're interested in novel approaches to AI orchestration and don't mind tinkering with experimental code, welcome aboard! 🚀
+If you're looking for production AI tools, this isn't it (yet). This tool does not include any installation alongside it, and presumes you have your network configured exactly like mine with Ollama sitting wide open. If you're interested in novel approaches to AI orchestration and don't mind tinkering with experimental code - changing it to fit your box for now - welcome aboard! 🚀
 
 ## 🧠 What Makes Coquette Different
 
