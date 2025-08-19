@@ -2,6 +2,7 @@
 
 > **Multi-Model AI Orchestration with Subconscious Reasoning**  
 > ⚠️ **Experimental Architecture** - Work in Progress
+<img width="1086" height="861" alt="image" src="https://github.com/user-attachments/assets/9791ed3c-ffd3-47f8-ac66-a8b36947ca9b" />
 
 Coquette is a revolutionary AI architecture that thinks before it acts. Unlike single-model systems, Coquette creates a "cognitive chain" where different AI models handle different aspects of intelligence - routing decisions, deep reasoning, personality interpretation, and tool orchestration - resulting in more nuanced and human-like AI interactions.
 
